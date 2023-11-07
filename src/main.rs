@@ -1,10 +1,32 @@
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let listener = TcpListener::bind("127.0.0.1:8080").await?;
+async fn main() {
+    let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
 
+    let local_port = listener.local_addr().unwrap().port();
+    println!("listening on port: {:?}", local_port);
+
+    loop {
+        let (mut socket, addr) = listener.accept().await.unwrap();
+
+        let (reader, mut writer) = socket.split();
+        let mut reader = BufReader::new(reader);
+        let mut line = String::new();
+
+        loop {
+            let bytes_per_line = reader.read_line(&mut line).await.unwrap();
+            if bytes_per_line == 0 {
+                break;
+            }
+            println!("res: {:?} {:?}", bytes_per_line, addr);
+
+            writer.write_all(&line.as_bytes()).await.unwrap();
+            line.clear();
+        }
+    }
+    /*
     let local_port = listener.local_addr()?.port();
 
     println!("listening on port: {:?}", local_port);
@@ -34,4 +56,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
+    */
 }
