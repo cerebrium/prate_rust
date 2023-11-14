@@ -72,14 +72,20 @@ async fn main() {
 
                         // Check for the user group
                         if !user_group.is_empty() {
+                            let mut escape_thread_list_copy = None;
                             if let Ok(map) = session_writer.read() {
-                               if let Some(chat_list) = map.get(&user_group) {
-                                  for add in chat_list {
+                               if let Some(chat_list) = map.get(&*user_group) {
+                                  escape_thread_list_copy = Some(chat_list.clone());
+
+                               }
+                            }
+
+                            if let Some(local_list) = escape_thread_list_copy {
+                                for add in local_list {
                                     if add != other_addr {
                                         writer.write_all(msg.as_bytes()).await.unwrap();
                                     }
-                                  }
-                               }
+                                }
                             }
                         }
                     }
