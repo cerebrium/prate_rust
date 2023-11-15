@@ -44,6 +44,11 @@ async fn main() {
         let mut user_group = String::new();
 
         tokio::spawn(async move {
+            // hendle the shutdown memory cleanup
+            //if tokio::signal::ctrl_c() {
+            //   println!("the thread is disconnected")
+            //}
+
             // Splits the socket into read section and write section to allow for
             // ownership to be used in different places
             let (reader, mut writer) = socket.split();
@@ -56,17 +61,53 @@ async fn main() {
                 // first is acted on
                 tokio::select! {
                     result = reader.read_line(&mut line) => {
-                        if result.unwrap() == 0 {
+                       println!("This is being hit: {:?}", session_writer);
+                       /* if result.unwrap() == 0 {
                           break;
+                        }
+                       */
+
+                        let mut is_new = false;
+
+                        match result {
+                            Ok(n) => {
+                                if n == 0 {
+                                    if !user_group.is_empty() {
+                                        if let Ok(mut map) = session_writer.write() {
+                                            if let Some(group) = map.get_mut(&*user_group) {
+                                                // remove the addr
+                                                group.remove(group.iter().position(|a| *a == addr).unwrap());
+                                                println!("user disconnected")
+                                            }
+                                        }
+                                    }
+                                    break
+                                }
+                            }
+                            Err(_) => {
+                                // Handle removing shared memory
+                                println!("There was an error");
+
+                                if !user_group.is_empty() {
+                                    if let Ok(mut map) = session_writer.write() {
+                                        if let Some(group) = map.get_mut(&*user_group) {
+                                            // remove the addr
+                                            group.remove(group.iter().position(|a| *a == addr).unwrap());
+                                            println!("user disconnected")
+                                        }
+                                    }
+                                }
+                                break
+                            }
                         }
 
                         if user_group.is_empty() {
                             if let Some(ses_num) = re.captures(&line.clone()) {
-
                                user_group.push_str(&ses_num[0]);
                                 if let Ok(mut map) = session_writer.write() {
                                     if let Some(group) = map.get_mut(&ses_num[0]) {
-                                        group.push(addr)
+                                        group.push(addr);
+                                        is_new = true;
                                     }
                                 } else {
                                     panic!("panic at trying to obtain the write lock")
@@ -79,6 +120,11 @@ async fn main() {
                           tx.send((line.clone(), addr)).unwrap();
                           line.clear();
                         };
+
+                        if is_new {
+                            line.clear();
+                            writer.write_all("Welcome to the chat group\n".as_bytes()).await.unwrap();
+                        }
                     }
 
                     result = rx.recv() => {
