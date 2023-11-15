@@ -62,11 +62,10 @@ async fn main() {
 
                         if user_group.is_empty() {
                             if let Some(ses_num) = re.captures(&line.clone()) {
-                               println!("the user wants: {:?} ", &ses_num[0]);
 
                                user_group.push_str(&ses_num[0]);
                                 if let Ok(mut map) = session_writer.write() {
-                                    if let Some(mut group) = map.get_mut(&ses_num[0]) {
+                                    if let Some(group) = map.get_mut(&ses_num[0]) {
                                         group.push(addr)
                                     }
                                 } else {
@@ -89,18 +88,14 @@ async fn main() {
                         if !user_group.is_empty() {
                             let mut escape_thread_list_copy = None;
                             if let Ok(map) = session_writer.read() {
-                                println!("the map: {:?}", map);
                                if let Some(chat_list) = map.get(&*user_group) {
                                   escape_thread_list_copy = Some(chat_list.clone());
                                }
                             }
 
                             if let Some(local_list) = escape_thread_list_copy {
-                                println!("local list: {:?}", local_list);
-                                for add in local_list {
-                                    if add != addr && add != other_addr {
-                                        writer.write_all(msg.as_bytes()).await.unwrap();
-                                    }
+                                if local_list.contains(&other_addr) && other_addr != addr {
+                                    writer.write_all(msg.as_bytes()).await.unwrap();
                                 }
                             }
                         }
