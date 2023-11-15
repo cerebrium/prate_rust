@@ -89,15 +89,16 @@ async fn main() {
                         if !user_group.is_empty() {
                             let mut escape_thread_list_copy = None;
                             if let Ok(map) = session_writer.read() {
+                                println!("the map: {:?}", map);
                                if let Some(chat_list) = map.get(&*user_group) {
                                   escape_thread_list_copy = Some(chat_list.clone());
-
                                }
                             }
 
                             if let Some(local_list) = escape_thread_list_copy {
+                                println!("local list: {:?}", local_list);
                                 for add in local_list {
-                                    if add != other_addr {
+                                    if add != addr && add != other_addr {
                                         writer.write_all(msg.as_bytes()).await.unwrap();
                                     }
                                 }
