@@ -20,6 +20,14 @@ async fn main() {
     let mut sessions: Arc<RwLock<HashMap<&str, Vec<SocketAddr>>>> =
         Arc::new(RwLock::new(HashMap::new()));
 
+    if let Ok(mut map) = sessions.clone().write() {
+        map.insert("<1>", vec![]);
+        map.insert("<2>", vec![]);
+        map.insert("<3>", vec![]);
+    } else {
+        panic!("rust is broken");
+    };
+
     loop {
         let (mut socket, addr) = listener.accept().await.unwrap();
 
@@ -29,10 +37,11 @@ async fn main() {
 
         // Store the sessions:
         // Map of group id's with the addr to send to.
-        let mut session_writer = sessions.clone();
+        let session_writer = sessions.clone();
 
         // The text that is being sent
         let mut line = String::new();
+        let mut user_group = String::new();
 
         tokio::spawn(async move {
             // Splits the socket into read section and write section to allow for
@@ -41,7 +50,6 @@ async fn main() {
 
             // Buf Reader is an automagic memory managed buffer (ring buffer? look into it)
             let mut reader = BufReader::new(reader);
-            let mut user_group = String::new();
 
             loop {
                 // Allows for concurrent actions to race and whichever finishes
@@ -53,14 +61,21 @@ async fn main() {
                         }
 
                         if user_group.is_empty() {
-                           if let Some(ses_num) = re.captures(&line.clone()) {
+                            if let Some(ses_num) = re.captures(&line.clone()) {
+                               println!("the user wants: {:?} ", &ses_num[0]);
+
                                user_group.push_str(&ses_num[0]);
-                               // let map = session_writer.write();
-                               // map.unwrap().entry(&ses_num[0]).or_insert(Vec::new()).push(addr);
-                           } else {
-                              line.clear();
-                              writer.write_all("Please submit a connection number: ex: <1>\n".as_bytes()).await.unwrap();
-                           }
+                                if let Ok(mut map) = session_writer.write() {
+                                    if let Some(mut group) = map.get_mut(&ses_num[0]) {
+                                        group.push(addr)
+                                    }
+                                } else {
+                                    panic!("panic at trying to obtain the write lock")
+                                }
+                            } else {
+                               line.clear();
+                               writer.write_all("Please submit a connection number: ex: <1> .. <3>\n".as_bytes()).await.unwrap();
+                            }
                         } else {
                           tx.send((line.clone(), addr)).unwrap();
                           line.clear();
