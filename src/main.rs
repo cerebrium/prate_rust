@@ -77,6 +77,7 @@ async fn main() {
                                             }
                                         }
                                     }
+                                    tx.send((format!("{:?} has left the chat", addr).to_string(), addr)).unwrap();
                                     socket.shutdown().await.unwrap();
                                     break
                                 }
@@ -94,6 +95,7 @@ async fn main() {
                                         }
                                     }
                                 }
+                                tx.send((format!("{:?} has left the chat", addr).to_string(), addr)).unwrap();
                                 socket.shutdown().await.unwrap();
                                 break
                             }
