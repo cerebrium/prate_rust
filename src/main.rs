@@ -9,7 +9,7 @@ use tokio::sync::broadcast;
 
 #[tokio::main]
 async fn main() {
-    let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
+    let listener = TcpListener::bind("127.0.0.1:3000").await.unwrap();
 
     let local_port = listener.local_addr().unwrap().port();
     println!("listening on port: {:?}", local_port);
@@ -17,13 +17,14 @@ async fn main() {
     let (tx, _rx) = broadcast::channel(10);
 
     let re = Regex::new(r"<(.+)>").unwrap();
-    let mut sessions: Arc<RwLock<HashMap<&str, Vec<SocketAddr>>>> =
+    let sessions: Arc<RwLock<HashMap<&str, Vec<SocketAddr>>>> =
         Arc::new(RwLock::new(HashMap::new()));
 
     if let Ok(mut map) = sessions.clone().write() {
         map.insert("<1>", vec![]);
         map.insert("<2>", vec![]);
         map.insert("<3>", vec![]);
+        map.insert("<42069>", vec![]);
     } else {
         panic!("rust is broken");
     };
@@ -44,11 +45,6 @@ async fn main() {
         let mut user_group = String::new();
 
         tokio::spawn(async move {
-            // hendle the shutdown memory cleanup
-            //if tokio::signal::ctrl_c() {
-            //   println!("the thread is disconnected")
-            //}
-
             // Splits the socket into read section and write section to allow for
             // ownership to be used in different places
             let (reader, mut writer) = socket.split();
@@ -77,10 +73,11 @@ async fn main() {
                                             if let Some(group) = map.get_mut(&*user_group) {
                                                 // remove the addr
                                                 group.remove(group.iter().position(|a| *a == addr).unwrap());
-                                                println!("user disconnected")
+                                                println!("user disconnected");
                                             }
                                         }
                                     }
+                                    socket.shutdown().await.unwrap();
                                     break
                                 }
                             }
@@ -97,6 +94,7 @@ async fn main() {
                                         }
                                     }
                                 }
+                                socket.shutdown().await.unwrap();
                                 break
                             }
                         }
@@ -124,6 +122,7 @@ async fn main() {
                         if is_new {
                             line.clear();
                             writer.write_all("Welcome to the chat group\n".as_bytes()).await.unwrap();
+                            tx.send(("user has joined the chat\n".to_string(), addr)).unwrap();
                         }
                     }
 
@@ -141,7 +140,8 @@ async fn main() {
 
                             if let Some(local_list) = escape_thread_list_copy {
                                 if local_list.contains(&other_addr) && other_addr != addr {
-                                    writer.write_all(msg.as_bytes()).await.unwrap();
+                                    let message_to_write = format!("{:?}: {}", other_addr, msg);
+                                    writer.write_all(message_to_write.as_bytes()).await.unwrap();
                                 }
                             }
                         }
