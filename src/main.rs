@@ -1,155 +1,187 @@
-use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::sync::{Arc, RwLock};
-
+use futures::channel::mpsc::UnboundedSender;
+use futures::StreamExt;
 use regex::Regex;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::TcpListener;
-use tokio::sync::broadcast;
+use std::env;
+use std::fs;
+use std::net::SocketAddr;
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::{mpsc, RwLock};
+use tokio_stream::wrappers::UnboundedReceiverStream;
+use warp::ws::{Message, WebSocket};
+use warp::Filter;
+
+static NEXT_USERID: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+
+type Users = Arc<RwLock<HashMap<usize, mpsc::UnboundedSender<Result<Message, warp::Error>>>>>;
+type Sessions =
+    Arc<RwLock<HashMap<String, Vec<mpsc::UnboundedSender<Result<Message, warp::Error>>>>>>;
+type UserSessions = Arc<RwLock<HashMap<usize, String>>>;
 
 #[tokio::main]
 async fn main() {
-    let listener = TcpListener::bind("127.0.0.1:3000").await.unwrap();
+    let addr = env::args()
+        .nth(1)
+        .unwrap_or_else(|| "127.0.0.1:8080".to_string());
+    let socket_address: SocketAddr = addr.parse().expect("valid socket Address");
 
-    let local_port = listener.local_addr().unwrap().port();
-    println!("listening on port: {:?}", local_port);
+    let users = Users::default();
+    let users = warp::any().map(move || users.clone());
 
-    let (tx, _rx) = broadcast::channel(10);
+    let users_to_sessions = UserSessions::default();
+    let users_to_sessions = warp::any().map(move || users_to_sessions.clone());
 
+    let sessions = Sessions::default();
+    let sessions = warp::any().map(move || sessions.clone());
+
+    // GET /ws
+    let chat = warp::path("ws")
+        .and(warp::ws())
+        .and(users)
+        .and(sessions)
+        .and(users_to_sessions)
+        .map(|ws: warp::ws::Ws, users, sessions, users_to_sessions| {
+            ws.on_upgrade(move |socket| connect(socket, users, sessions, users_to_sessions))
+        });
+
+    let res_404 = warp::any().map(|| {
+        warp::http::Response::builder()
+            .status(warp::http::StatusCode::NOT_FOUND)
+            .body(fs::read_to_string("./static/404.html").expect("404 404?"))
+    });
+
+    let routes = chat.or(res_404);
+    let server = warp::serve(routes).try_bind(socket_address);
+    println!("Running server at {}!", addr);
+
+    server.await
+}
+
+async fn connect(ws: WebSocket, users: Users, sessions: Sessions, users_to_sessions: UserSessions) {
     let re = Regex::new(r"<(.+)>").unwrap();
-    let sessions: Arc<RwLock<HashMap<&str, Vec<SocketAddr>>>> =
-        Arc::new(RwLock::new(HashMap::new()));
 
-    if let Ok(mut map) = sessions.clone().write() {
-        map.insert("<1>", vec![]);
-        map.insert("<2>", vec![]);
-        map.insert("<3>", vec![]);
-        map.insert("<42069>", vec![]);
-    } else {
-        panic!("rust is broken");
-    };
+    // Bookkeeping
+    let my_id = NEXT_USERID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    // Establishing a connection
+    let (user_tx, mut user_rx) = ws.split();
+    let (tx, rx) = mpsc::unbounded_channel();
+
+    let rx = UnboundedReceiverStream::new(rx);
+
+    tokio::spawn(rx.forward(user_tx));
+
+    users.write().await.insert(my_id, tx.clone());
+
+    let initial_message = Message::text("Please submit a chat group id");
+    let joining_message = Message::text("You have joined the chat!");
+    let chat_join_notification = Message::text("User has joined the chat!");
+
+    send_message(initial_message.clone(), &tx).await;
+
+    let my_session;
 
     loop {
-        let (mut socket, addr) = listener.accept().await.unwrap();
+        if !users_to_sessions.read().await.contains_key(&my_id) {
+            if let Some(result) = user_rx.next().await {
+                if let Ok(message) = result {
+                    if let Some(ses_num) = re.captures(&message.to_str().unwrap()) {
+                        my_session = ses_num[0].to_string();
+                        users_to_sessions
+                            .write()
+                            .await
+                            .insert(my_id, ses_num[0].to_string());
 
-        let tx = tx.clone();
-        let mut rx = tx.subscribe();
-        let re = re.clone();
+                        let mut session_lock = sessions.write().await;
+                        if let Some(session_list) = session_lock.get_mut(&ses_num[0].to_string()) {
+                            session_list.push(tx.clone());
 
-        // Store the sessions:
-        // Map of group id's with the addr to send to.
-        let session_writer = sessions.clone();
-
-        // The text that is being sent
-        let mut line = String::new();
-        let mut user_group = String::new();
-
-        tokio::spawn(async move {
-            // Splits the socket into read section and write section to allow for
-            // ownership to be used in different places
-            let (reader, mut writer) = socket.split();
-
-            // Buf Reader is an automagic memory managed buffer (ring buffer? look into it)
-            let mut reader = BufReader::new(reader);
-
-            loop {
-                // Allows for concurrent actions to race and whichever finishes
-                // first is acted on
-                tokio::select! {
-                    result = reader.read_line(&mut line) => {
-                       println!("This is being hit: {:?}", session_writer);
-                       /* if result.unwrap() == 0 {
-                          break;
-                        }
-                       */
-
-                        let mut is_new = false;
-
-                        match result {
-                            Ok(n) => {
-                                if n == 0 {
-                                    if !user_group.is_empty() {
-                                        if let Ok(mut map) = session_writer.write() {
-                                            if let Some(group) = map.get_mut(&*user_group) {
-                                                // remove the addr
-                                                group.remove(group.iter().position(|a| *a == addr).unwrap());
-                                                println!("user disconnected");
-                                            }
-                                        }
-                                    }
-                                    tx.send((format!("{:?} has left the chat", addr).to_string(), addr)).unwrap();
-                                    socket.shutdown().await.unwrap();
-                                    break
-                                }
-                            }
-                            Err(_) => {
-                                // Handle removing shared memory
-                                println!("There was an error");
-
-                                if !user_group.is_empty() {
-                                    if let Ok(mut map) = session_writer.write() {
-                                        if let Some(group) = map.get_mut(&*user_group) {
-                                            // remove the addr
-                                            group.remove(group.iter().position(|a| *a == addr).unwrap());
-                                            println!("user disconnected")
-                                        }
-                                    }
-                                }
-                                tx.send((format!("{:?} has left the chat", addr).to_string(), addr)).unwrap();
-                                socket.shutdown().await.unwrap();
-                                break
-                            }
-                        }
-
-                        if user_group.is_empty() {
-                            if let Some(ses_num) = re.captures(&line.clone()) {
-                               user_group.push_str(&ses_num[0]);
-                                if let Ok(mut map) = session_writer.write() {
-                                    if let Some(group) = map.get_mut(&ses_num[0]) {
-                                        group.push(addr);
-                                        is_new = true;
-                                    }
-                                } else {
-                                    panic!("panic at trying to obtain the write lock")
-                                }
-                            } else {
-                               line.clear();
-                               writer.write_all("Please submit a connection number: ex: <1> .. <3>\n".as_bytes()).await.unwrap();
-                            }
-                        } else {
-                          tx.send((line.clone(), addr)).unwrap();
-                          line.clear();
+                            send_message(joining_message.clone(), &tx).await;
+                            break;
                         };
 
-                        if is_new {
-                            line.clear();
-                            writer.write_all("Welcome to the chat group\n".as_bytes()).await.unwrap();
-                            tx.send(("user has joined the chat\n".to_string(), addr)).unwrap();
-                        }
-                    }
+                        session_lock.insert(ses_num[0].to_string(), vec![tx.clone()]);
+                        send_message(joining_message.clone(), &tx).await;
 
-                    result = rx.recv() => {
-                        let (msg, other_addr) = result.unwrap();
-
-                        // Check for the user group
-                        if !user_group.is_empty() {
-                            let mut escape_thread_list_copy = None;
-                            if let Ok(map) = session_writer.read() {
-                               if let Some(chat_list) = map.get(&*user_group) {
-                                  escape_thread_list_copy = Some(chat_list.clone());
-                               }
-                            }
-
-                            if let Some(local_list) = escape_thread_list_copy {
-                                if local_list.contains(&other_addr) && other_addr != addr {
-                                    let message_to_write = format!("{:?}: {}", other_addr, msg);
-                                    writer.write_all(message_to_write.as_bytes()).await.unwrap();
-                                }
-                            }
-                        }
+                        break;
+                    } else {
+                        send_message(initial_message.clone(), &tx).await;
                     }
                 }
             }
-        });
+        }
     }
+
+    broadcast_msg(chat_join_notification, &sessions, my_session.clone(), &tx).await;
+
+    // Reading and broadcasting messages
+    while let Some(result) = user_rx.next().await {
+        broadcast_msg(
+            result.expect("Failed to fetch message"),
+            &sessions,
+            my_session.clone(),
+            &tx,
+        )
+        .await;
+    }
+
+    // Disconnect
+    disconnect(
+        my_session.clone(),
+        my_id,
+        &tx,
+        &users,
+        &sessions,
+        &users_to_sessions,
+    )
+    .await;
+}
+
+async fn send_message(msg: Message, user: &mpsc::UnboundedSender<Result<Message, warp::Error>>) {
+    if msg.to_str().is_ok() {
+        user.send(Ok(msg.clone())).expect("Failed to send message");
+    }
+}
+
+async fn broadcast_msg(
+    msg: Message,
+    sessions: &Sessions,
+    my_session: String,
+    my_user: &mpsc::UnboundedSender<Result<Message, warp::Error>>,
+) {
+    if msg.to_str().is_ok() {
+        if let Some(recipients) = sessions.read().await.get(&my_session) {
+            for tx in recipients {
+                if !tx.same_channel(my_user) {
+                    tx.send(Ok(msg.clone())).expect("Failed to send message");
+                }
+            }
+        }
+    }
+}
+
+async fn disconnect(
+    session_id: String,
+    my_id: usize,
+    my_user: &mpsc::UnboundedSender<Result<Message, warp::Error>>,
+    users: &Users,
+    sessions: &Sessions,
+    user_sessions: &UserSessions,
+) {
+    users.write().await.remove(&my_id);
+    user_sessions.write().await.remove(&my_id);
+
+    if let Some(recipients) = sessions.write().await.get_mut(&session_id) {
+        let leaving_message = Message::text("User is leaving");
+
+        let filtered_recipients: Vec<&mut mpsc::UnboundedSender<Result<Message, warp::Error>>> =
+            recipients
+                .iter_mut()
+                .filter(|user| !user.same_channel(my_user))
+                .collect();
+
+        for tx in filtered_recipients {
+            tx.send(Ok(leaving_message.clone()))
+                .expect("Failed to send message");
+        }
+    };
 }
