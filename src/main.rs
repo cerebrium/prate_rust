@@ -1,4 +1,3 @@
-use futures::channel::mpsc::UnboundedSender;
 use futures::StreamExt;
 use regex::Regex;
 use std::env;
@@ -21,7 +20,7 @@ type UserSessions = Arc<RwLock<HashMap<usize, String>>>;
 async fn main() {
     let addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:8080".to_string());
+        .unwrap_or_else(|| "0.0.0.0:3000".to_string());
     let socket_address: SocketAddr = addr.parse().expect("valid socket Address");
 
     let users = Users::default();
@@ -46,7 +45,10 @@ async fn main() {
     let res_404 = warp::any().map(|| {
         warp::http::Response::builder()
             .status(warp::http::StatusCode::NOT_FOUND)
-            .body(fs::read_to_string("./static/404.html").expect("404 404?"))
+            .body(
+                fs::read_to_string(env::current_dir().unwrap().join("./static/404.html"))
+                    .expect("404 404?"),
+            )
     });
 
     let routes = chat.or(res_404);
@@ -80,11 +82,12 @@ async fn connect(ws: WebSocket, users: Users, sessions: Sessions, users_to_sessi
 
     let my_session;
 
+    // Establishing shared state and session. Initial messaging section.
     loop {
         if !users_to_sessions.read().await.contains_key(&my_id) {
-            if let Some(result) = user_rx.next().await {
-                if let Ok(message) = result {
-                    if let Some(ses_num) = re.captures(&message.to_str().unwrap()) {
+            if let Some(Ok(message)) = StreamExt::next(&mut user_rx).await {
+                if let Ok(string_message) = message.to_str() {
+                    if let Some(ses_num) = re.captures(string_message) {
                         my_session = ses_num[0].to_string();
                         users_to_sessions
                             .write()
@@ -106,22 +109,50 @@ async fn connect(ws: WebSocket, users: Users, sessions: Sessions, users_to_sessi
                     } else {
                         send_message(initial_message.clone(), &tx).await;
                     }
+                } else {
+                    println!("Could not convert message to str")
                 }
             }
         }
     }
 
-    broadcast_msg(chat_join_notification, &sessions, my_session.clone(), &tx).await;
+    // Send the user joining message
+    broadcast_msg(
+        chat_join_notification,
+        &sessions,
+        my_session.clone(),
+        &tx,
+        my_id,
+        &users,
+        &users_to_sessions,
+    )
+    .await;
 
     // Reading and broadcasting messages
     while let Some(result) = user_rx.next().await {
-        broadcast_msg(
-            result.expect("Failed to fetch message"),
-            &sessions,
-            my_session.clone(),
-            &tx,
-        )
-        .await;
+        if let Ok(message) = result {
+            broadcast_msg(
+                message,
+                &sessions,
+                my_session.clone(),
+                &tx,
+                my_id,
+                &users,
+                &users_to_sessions,
+            )
+            .await;
+        } else {
+            // Disconnect
+            disconnect(
+                my_session.clone(),
+                my_id,
+                &tx,
+                &users,
+                &sessions,
+                &users_to_sessions,
+            )
+            .await;
+        }
     }
 
     // Disconnect
@@ -137,8 +168,8 @@ async fn connect(ws: WebSocket, users: Users, sessions: Sessions, users_to_sessi
 }
 
 async fn send_message(msg: Message, user: &mpsc::UnboundedSender<Result<Message, warp::Error>>) {
-    if msg.to_str().is_ok() {
-        user.send(Ok(msg.clone())).expect("Failed to send message");
+    if msg.to_str().is_ok() && user.send(Ok(msg.clone())).is_err() {
+        println!("error at send message, reset be.")
     }
 }
 
@@ -147,12 +178,25 @@ async fn broadcast_msg(
     sessions: &Sessions,
     my_session: String,
     my_user: &mpsc::UnboundedSender<Result<Message, warp::Error>>,
+    my_id: usize,
+    users: &Users,
+    users_to_sessions: &UserSessions,
 ) {
     if msg.to_str().is_ok() {
         if let Some(recipients) = sessions.read().await.get(&my_session) {
             for tx in recipients {
-                if !tx.same_channel(my_user) {
-                    tx.send(Ok(msg.clone())).expect("Failed to send message");
+                if !tx.same_channel(my_user) && tx.send(Ok(msg.clone())).is_err() {
+                    disconnect(
+                        my_session.clone(),
+                        my_id,
+                        tx,
+                        users,
+                        sessions,
+                        users_to_sessions,
+                    )
+                    .await;
+
+                    println!("disconnecting user: {:?}", tx);
                 }
             }
         }
@@ -180,8 +224,9 @@ async fn disconnect(
                 .collect();
 
         for tx in filtered_recipients {
-            tx.send(Ok(leaving_message.clone()))
-                .expect("Failed to send message");
+            if tx.send(Ok(leaving_message.clone())).is_err() {
+                println!("Error in disconnection message.")
+            }
         }
     };
 }
