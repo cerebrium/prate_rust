@@ -16,11 +16,12 @@ type Sessions =
     Arc<RwLock<HashMap<String, Vec<mpsc::UnboundedSender<Result<Message, warp::Error>>>>>>;
 type UserSessions = Arc<RwLock<HashMap<usize, String>>>;
 
+// TODO: .unwrap_or_else(|| "0.0.0.0:3000".to_string());
 #[tokio::main]
 async fn main() {
     let addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "0.0.0.0:3000".to_string());
+        .unwrap_or_else(|| "127.0.0.1:8080".to_string());
     let socket_address: SocketAddr = addr.parse().expect("valid socket Address");
 
     let users = Users::default();
@@ -90,6 +91,7 @@ async fn connect(ws: WebSocket, users: Users, sessions: Sessions, users_to_sessi
     loop {
         if !users_to_sessions.read().await.contains_key(&my_id) {
             if let Some(Ok(message)) = StreamExt::next(&mut user_rx).await {
+                println!("Message: {:?}", message);
                 if let Ok(string_message) = message.to_str() {
                     if let Some(ses_num) = re.captures(string_message) {
                         my_session = ses_num[0].to_string();
@@ -114,7 +116,18 @@ async fn connect(ws: WebSocket, users: Users, sessions: Sessions, users_to_sessi
                         send_message(initial_message.clone(), &tx).await;
                     }
                 } else {
-                    println!("Could not convert message to str")
+                    println!("Could not convert message to str");
+
+                    if let my_sess = Some(my_session.clone()) {
+                        disconnect(
+                            my_session.clone(),
+                            my_id,
+                            &tx,
+                            &users,
+                            &sessions,
+                            &users_to_sessions,
+                        );
+                    }
                 }
             }
         }
