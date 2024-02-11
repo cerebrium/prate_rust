@@ -46,8 +46,12 @@ async fn main() {
         warp::http::Response::builder()
             .status(warp::http::StatusCode::NOT_FOUND)
             .body(
-                fs::read_to_string(env::current_dir().unwrap().join("./static/404.html"))
-                    .expect("404 404?"),
+                fs::read_to_string(
+                    env::current_dir()
+                        .unwrap()
+                        .join("../var/www/static/404.html"),
+                )
+                .expect("404 404?"),
             )
     });
 
