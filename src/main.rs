@@ -1,3 +1,4 @@
+use async_recursion::async_recursion;
 use futures::StreamExt;
 use regex::Regex;
 use std::env;
@@ -35,6 +36,7 @@ async fn main() {
 
     // GET /ws
     let chat = warp::path("ws")
+        // Passing all the references to the shared state.
         .and(warp::ws())
         .and(users)
         .and(sessions)
@@ -91,7 +93,6 @@ async fn connect(ws: WebSocket, users: Users, sessions: Sessions, users_to_sessi
     loop {
         if !users_to_sessions.read().await.contains_key(&my_id) {
             if let Some(Ok(message)) = StreamExt::next(&mut user_rx).await {
-                println!("Message: {:?}", message);
                 if let Ok(string_message) = message.to_str() {
                     if let Some(ses_num) = re.captures(string_message) {
                         my_session = ses_num[0].to_string();
@@ -109,24 +110,12 @@ async fn connect(ws: WebSocket, users: Users, sessions: Sessions, users_to_sessi
                         };
 
                         session_lock.insert(ses_num[0].to_string(), vec![tx.clone()]);
+
                         send_message(joining_message.clone(), &tx).await;
 
                         break;
                     } else {
                         send_message(initial_message.clone(), &tx).await;
-                    }
-                } else {
-                    println!("Could not convert message to str");
-
-                    if let my_sess = Some(my_session.clone()) {
-                        disconnect(
-                            my_session.clone(),
-                            my_id,
-                            &tx,
-                            &users,
-                            &sessions,
-                            &users_to_sessions,
-                        );
                     }
                 }
             }
@@ -158,18 +147,11 @@ async fn connect(ws: WebSocket, users: Users, sessions: Sessions, users_to_sessi
                 &users_to_sessions,
             )
             .await;
-        } else {
-            // Disconnect
-            disconnect(
-                my_session.clone(),
-                my_id,
-                &tx,
-                &users,
-                &sessions,
-                &users_to_sessions,
-            )
-            .await;
+
+            continue;
         }
+
+        break;
     }
 
     // Disconnect
@@ -199,10 +181,23 @@ async fn broadcast_msg(
     users: &Users,
     users_to_sessions: &UserSessions,
 ) {
+    if msg.is_close() {
+        disconnect(
+            my_session.clone(),
+            my_id,
+            my_user,
+            users,
+            sessions,
+            users_to_sessions,
+        )
+        .await;
+    }
+
     if msg.to_str().is_ok() {
         if let Some(recipients) = sessions.read().await.get(&my_session) {
             for tx in recipients {
                 if !tx.same_channel(my_user) && tx.send(Ok(msg.clone())).is_err() {
+                    println!("Error in broadcast message. {:?}-------------\n\n", tx);
                     disconnect(
                         my_session.clone(),
                         my_id,
@@ -212,14 +207,14 @@ async fn broadcast_msg(
                         users_to_sessions,
                     )
                     .await;
-
-                    println!("disconnecting user: {:?}", tx);
                 }
             }
         }
     }
 }
 
+// TODO: the error is now sending here from the
+#[async_recursion]
 async fn disconnect(
     session_id: String,
     my_id: usize,
@@ -228,12 +223,24 @@ async fn disconnect(
     sessions: &Sessions,
     user_sessions: &UserSessions,
 ) {
+    println!(
+        "The disconnect function is being called.{:?}{:?}{:?}\n",
+        my_user, session_id, my_id
+    );
+
+    println!("what is the session id: {:?}--------\n\n\n", my_id);
+    // There is a case here where the tx is being sent in the disconnect function.
+    // the tx, doesn't neccesarily track to my session. It could be a different session.
+    // To fix this, I need to track the session id of the user, and then remove the user from the session.
+
     users.write().await.remove(&my_id);
     user_sessions.write().await.remove(&my_id);
 
     if let Some(recipients) = sessions.write().await.get_mut(&session_id) {
         let leaving_message = Message::text("User is leaving");
 
+        // This filters out the user that is leaving from the recipients list.
+        // Which should not actually exist in the list.
         let filtered_recipients: Vec<&mut mpsc::UnboundedSender<Result<Message, warp::Error>>> =
             recipients
                 .iter_mut()
@@ -242,8 +249,16 @@ async fn disconnect(
 
         for tx in filtered_recipients {
             if tx.send(Ok(leaving_message.clone())).is_err() {
+                handle_disconnecting_dangling_sessions(tx).await;
                 println!("Error in disconnection message.")
             }
         }
     };
+}
+
+async fn handle_disconnecting_dangling_sessions(
+    dangling_unbouded_sender: &mpsc::UnboundedSender<Result<Message, warp::Error>>,
+) {
+    // This is when there was a disconnection that did not send the
+    // disconnect message. There will be state that is not removed.
 }
