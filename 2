@@ -24,7 +24,7 @@ type UserSessions = Arc<RwLock<HashMap<usize, String>>>;
 async fn main() {
     let addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "0.0.0.0:3000".to_string());
+        .unwrap_or_else(|| "127.0.0.1:8080".to_string());
     let socket_address: SocketAddr = addr.parse().expect("valid socket Address");
 
     let users = Users::default();
@@ -129,18 +129,28 @@ async fn connect(ws: WebSocket, users: Users, sessions: Sessions, users_to_sessi
 
     // Reading and broadcasting messages
     while let Some(result) = user_rx.next().await {
+        println!("The result is: {:?}", result);
+
         if let Ok(message) = result {
             if message.is_close() {
+                println!("The message is close.");
                 break;
             }
             broadcast_msg(message, &sessions, my_session.clone(), &tx).await;
 
             continue;
         } else {
+            println!("Inside the err");
             break;
         }
     }
 
+    println!("The user is being disconnected.");
+
+    drop(rx);
+    tx.closed();
+
+    println!("The user is disconnected.");
     // Disconnect
     disconnect(
         my_session.clone(),
@@ -154,7 +164,9 @@ async fn connect(ws: WebSocket, users: Users, sessions: Sessions, users_to_sessi
 }
 
 async fn send_message(msg: Message, user: &mpsc::UnboundedSender<Result<Message, warp::Error>>) {
-    if msg.to_str().is_ok() && user.send(Ok(msg.clone())).is_err() {}
+    if msg.to_str().is_ok() && user.send(Ok(msg.clone())).is_err() {
+        println!("error at send message, reset be.")
+    }
 }
 
 async fn broadcast_msg(
@@ -167,6 +179,7 @@ async fn broadcast_msg(
         if let Some(recipients) = sessions.read().await.get(&my_session) {
             for tx in recipients {
                 if !tx.same_channel(my_user) && tx.send(Ok(msg.clone())).is_err() {
+                    println!("Error in broadcast message.");
                     tx.closed().await;
                 }
             }
@@ -184,13 +197,18 @@ async fn disconnect(
     sessions: &Sessions,
     user_sessions: &UserSessions,
 ) {
+    println!("The disconnect function is being called.\n",);
+
     // There is a case here where the tx is being sent in the disconnect function.
     // the tx, doesn't neccesarily track to my session. It could be a different session.
     // To fix this, I need to track the session id of the user, and then remove the user from the session.
 
     let mut session_lock = sessions.write().await;
     if let Some(session_list) = session_lock.get_mut(&session_id) {
+        println!("The session list is: {:?}", session_list.len());
         session_list.retain(|user| !user.is_closed());
+
+        println!("The session list after is: {:?}", session_list.len());
     };
 
     let mut users_lock = users.write().await;
@@ -199,10 +217,8 @@ async fn disconnect(
     let mut user_sessions_lock = user_sessions.write().await;
     user_sessions_lock.remove(&my_id);
 
-    drop(user_sessions_lock);
-    drop(session_lock);
-
     if let Some(recipients) = sessions.write().await.get_mut(&session_id) {
+        println!("The session is not empty.");
         let leaving_message = Message::text("User is leaving");
 
         // This filters out the user that is leaving from the recipients list.
@@ -213,13 +229,22 @@ async fn disconnect(
                 .filter(|user| !user.same_channel(my_user))
                 .collect();
 
+        println!("making it past the filterek list");
         for tx in filtered_recipients {
+            println!("inside the for loop.");
             if tx.send(Ok(leaving_message.clone())).is_err() {
+                println!("Error in disconnection message.");
                 tx.closed().await;
+                println!("the tx should be closed: {:?}", tx);
+                drop(session_lock.clone());
                 drop(users_lock.clone());
+            } else {
+                println!("The tx is not closed: {:?}", tx);
             }
         }
     } else {
+        println!("The session is empty.");
+        drop(session_lock);
         drop(users_lock);
     }
 }
