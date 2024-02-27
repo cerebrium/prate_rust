@@ -1,16 +1,14 @@
-use async_recursion::async_recursion;
-use futures::StreamExt;
-use regex::Regex;
+pub mod connection;
+
 use std::env;
 use std::fs;
 use std::net::SocketAddr;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{mpsc, RwLock};
-use tokio_stream::wrappers::UnboundedReceiverStream;
-use warp::ws::{Message, WebSocket};
+use warp::ws::Message;
 use warp::Filter;
 
-static NEXT_USERID: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+use crate::connection::connect::connect;
 
 // Usize -> User ID
 // String -> Session ID
@@ -65,161 +63,4 @@ async fn main() {
     println!("Running server at {}!", addr);
 
     server.await
-}
-
-async fn connect(ws: WebSocket, users: Users, sessions: Sessions, users_to_sessions: UserSessions) {
-    let re = Regex::new(r"<(.+)>").unwrap();
-
-    // Bookkeeping
-    let my_id = NEXT_USERID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-    // Establishing a connection
-    let (user_tx, mut user_rx) = ws.split();
-    let (tx, rx) = mpsc::unbounded_channel();
-
-    let rx = UnboundedReceiverStream::new(rx);
-
-    tokio::spawn(rx.forward(user_tx));
-
-    users.write().await.insert(my_id, tx.clone());
-
-    let initial_message = Message::text("Please submit a chat group id");
-    let joining_message = Message::text("You have joined the chat!");
-    let chat_join_notification = Message::text("User has joined the chat!");
-
-    send_message(initial_message.clone(), &tx).await;
-
-    let my_session;
-
-    // Establishing shared state and session. Initial messaging section.
-    loop {
-        if !users_to_sessions.read().await.contains_key(&my_id) {
-            if let Some(Ok(message)) = StreamExt::next(&mut user_rx).await {
-                if let Ok(string_message) = message.to_str() {
-                    if let Some(ses_num) = re.captures(string_message) {
-                        my_session = ses_num[0].to_string();
-                        users_to_sessions
-                            .write()
-                            .await
-                            .insert(my_id, ses_num[0].to_string());
-
-                        let mut session_lock = sessions.write().await;
-                        if let Some(session_list) = session_lock.get_mut(&ses_num[0].to_string()) {
-                            session_list.push(tx.clone());
-
-                            send_message(joining_message.clone(), &tx).await;
-                            break;
-                        };
-
-                        session_lock.insert(ses_num[0].to_string(), vec![tx.clone()]);
-
-                        send_message(joining_message.clone(), &tx).await;
-
-                        break;
-                    } else {
-                        send_message(initial_message.clone(), &tx).await;
-                    }
-                }
-            }
-        }
-    }
-
-    // Send the user joining message
-    broadcast_msg(chat_join_notification, &sessions, my_session.clone(), &tx).await;
-
-    // Reading and broadcasting messages
-    while let Some(result) = user_rx.next().await {
-        if let Ok(message) = result {
-            if message.is_close() {
-                break;
-            }
-            broadcast_msg(message, &sessions, my_session.clone(), &tx).await;
-
-            continue;
-        } else {
-            break;
-        }
-    }
-
-    // Disconnect
-    disconnect(
-        my_session.clone(),
-        my_id,
-        &tx,
-        &users,
-        &sessions,
-        &users_to_sessions,
-    )
-    .await;
-}
-
-async fn send_message(msg: Message, user: &mpsc::UnboundedSender<Result<Message, warp::Error>>) {
-    if msg.to_str().is_ok() && user.send(Ok(msg.clone())).is_err() {}
-}
-
-async fn broadcast_msg(
-    msg: Message,
-    sessions: &Sessions,
-    my_session: String,
-    my_user: &mpsc::UnboundedSender<Result<Message, warp::Error>>,
-) {
-    if msg.to_str().is_ok() {
-        if let Some(recipients) = sessions.read().await.get(&my_session) {
-            for tx in recipients {
-                if !tx.same_channel(my_user) && tx.send(Ok(msg.clone())).is_err() {
-                    tx.closed().await;
-                }
-            }
-        }
-    }
-}
-
-// TODO: the error is now sending here from the
-#[async_recursion]
-async fn disconnect(
-    session_id: String,
-    my_id: usize,
-    my_user: &mpsc::UnboundedSender<Result<Message, warp::Error>>,
-    users: &Users,
-    sessions: &Sessions,
-    user_sessions: &UserSessions,
-) {
-    // There is a case here where the tx is being sent in the disconnect function.
-    // the tx, doesn't neccesarily track to my session. It could be a different session.
-    // To fix this, I need to track the session id of the user, and then remove the user from the session.
-
-    let mut session_lock = sessions.write().await;
-    if let Some(session_list) = session_lock.get_mut(&session_id) {
-        session_list.retain(|user| !user.is_closed());
-    };
-
-    let mut users_lock = users.write().await;
-    users_lock.remove(&my_id);
-
-    let mut user_sessions_lock = user_sessions.write().await;
-    user_sessions_lock.remove(&my_id);
-
-    drop(user_sessions_lock);
-    drop(session_lock);
-
-    if let Some(recipients) = sessions.write().await.get_mut(&session_id) {
-        let leaving_message = Message::text("User is leaving");
-
-        // This filters out the user that is leaving from the recipients list.
-        // Which should not actually exist in the list.
-        let filtered_recipients: Vec<&mut mpsc::UnboundedSender<Result<Message, warp::Error>>> =
-            recipients
-                .iter_mut()
-                .filter(|user| !user.same_channel(my_user))
-                .collect();
-
-        for tx in filtered_recipients {
-            if tx.send(Ok(leaving_message.clone())).is_err() {
-                tx.closed().await;
-                drop(users_lock.clone());
-            }
-        }
-    } else {
-        drop(users_lock);
-    }
 }
