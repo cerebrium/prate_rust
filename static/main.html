@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prate</title>
+    <style>
+      body {
+        font-family: "Arial", sans-serif;
+        margin: 0;
+        padding: 0;
+        transition: background-color 0.5s ease;
+      }
+
+      /* Light Theme */
+      body.light {
+        background-color: #faf9f6;
+        color: #222629;
+      }
+      /* Dark Theme */
+      body.dark {
+        background-color: #222629;
+        color: #faf9f6;
+      }
+
+      header {
+        position: relative;
+        padding: 20px;
+        text-align: center;
+        color: #86c232;
+        background: linear-gradient(to right, #222629, #222629);
+        color: #fff;
+        overflow: hidden; /* Limit particle effect to the header */
+      }
+
+      /* Particle Styles */
+      .particle {
+        position: absolute;
+        width: 3px;
+        height: 3px;
+        background-color: #fff;
+        border-radius: 50%;
+        animation: moveParticle linear infinite;
+        animation-duration: 2s;
+      }
+
+      /* Line Styles */
+      .line {
+        position: absolute;
+        background-color: #fff;
+        opacity: 0; /* Initially invisible */
+        transition: opacity 1s ease; /* Smooth transition for visibility */
+        animation-duration: 2s;
+      }
+
+      section {
+        padding: 20px;
+      }
+
+      /* Add your own interesting background */
+      section.background {
+        background-image: url("your-background-image.jpg");
+        background-size: cover;
+        background-position: center;
+      }
+
+      button {
+        padding: 10px 20px;
+        background-color: #3498db;
+        color: #fff;
+        border: none;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+      }
+
+      button:hover {
+        background-color: #2980b9;
+      }
+
+      /* Moon Icon */
+      #moon {
+        display: none;
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        cursor: pointer;
+        transition: transform 0.3s ease;
+      }
+
+      #moon:hover {
+        transform: scale(1.2);
+      }
+
+      /* Sun Icon */
+      #sun {
+        display: none;
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        cursor: pointer;
+        transition: transform 0.3s ease;
+      }
+
+      #sun:hover {
+        transform: scale(1.2);
+      }
+
+      /* Dark Mode Specific Styles */
+      body.dark #sun {
+        display: block;
+      }
+
+      /* Light Mode Specific Styles */
+      body.light #moon {
+        display: block;
+      }
+
+      /* Keyframes for particle movement */
+      @keyframes moveParticle {
+        0% {
+          transform: translate(0, 0);
+        }
+        100% {
+          transform: translate(100%, 0);
+        }
+      }
+
+      /* Class to change particle direction when near the edge */
+      .change-direction {
+        animation: changeDirection linear infinite;
+      }
+
+      /* Keyframes for changing particle direction */
+      @keyframes changeDirection {
+        0% {
+          transform: translate(0, 0);
+        }
+        100% {
+          transform: translate(-100%, 0);
+        }
+      }
+    </style>
+  </head>
+
+  <body class="dark">
+    <header>
+      <h1>Prate</h1>
+
+      <script>
+        // Function to create particles and connect them with lines
+        function createParticles() {
+          const header = document.querySelector("header");
+          const particleCount = 15;
+          const particles = [];
+          const lines = [];
+
+          // Create particles
+          for (let i = 0; i < particleCount; i++) {
+            const particle = document.createElement("div");
+            particle.className = "particle";
+            particles.push(particle);
+            header.appendChild(particle);
+            moveParticle(particle);
+          }
+
+          // Create lines
+          for (let i = 0; i < particleCount; i++) {
+            const line = document.createElement("div");
+            line.className = "line";
+            lines.push(line);
+            header.appendChild(line);
+          }
+
+          // Move particles in a constant direction
+          function moveParticle(particle) {
+            particle.style.left = "0";
+            particle.style.top = `${Math.random() * header.clientHeight}px`;
+            particle.classList.add("change-direction");
+          }
+
+          // Connect particles with lines when close
+          function connectParticles() {
+            particles.forEach((particle1, index1) => {
+              particles.forEach((particle2, index2) => {
+                if (index1 !== index2) {
+                  const distance = getDistance(particle1, particle2);
+                  const line = lines[index1 * particleCount + index2];
+
+                  if (distance < 150) {
+                    updateLine(line, particle1, particle2, distance);
+                  } else {
+                    hideLine(line);
+                  }
+                }
+              });
+            });
+            requestAnimationFrame(connectParticles);
+          }
+
+          // Calculate distance between two particles
+          function getDistance(particle1, particle2) {
+            const dx =
+              parseInt(particle1.style.left) - parseInt(particle2.style.left);
+            const dy =
+              parseInt(particle1.style.top) - parseInt(particle2.style.top);
+            return Math.sqrt(dx * dx + dy * dy);
+          }
+
+          // Update line between two particles
+          function updateLine(line, particle1, particle2, distance) {
+            const angle = getAngle(particle1, particle2);
+            const midX =
+              (parseInt(particle1.style.left) +
+                parseInt(particle2.style.left)) /
+              2;
+            const midY =
+              (parseInt(particle1.style.top) + parseInt(particle2.style.top)) /
+              2;
+
+            line.style.transform = `translate(${midX}px, ${midY}px) rotate(${angle}rad)`;
+            line.style.width = `${distance}px`;
+            line.style.opacity = 1;
+          }
+
+          // Hide line
+          function hideLine(line) {
+            line.style.opacity = 0;
+          }
+
+          // Calculate angle between two particles
+          function getAngle(particle1, particle2) {
+            const dx =
+              parseInt(particle2.style.left) - parseInt(particle1.style.left);
+            const dy =
+              parseInt(particle2.style.top) - parseInt(particle1.style.top);
+            return Math.atan2(dy, dx);
+          }
+
+          connectParticles();
+        }
+
+        // Execute the particle effect
+        createParticles();
+      </script>
+    </header>
+
+    <section>
+      <h2>Prate</h2>
+      <p>/prāt/</p>
+      <p>verb</p>
+      <p>talk foolishly or at tedious length about something.</p>
+      <i>"I heard him prate on for at least an hour and a half"</i>
+    </section>
+
+    <section>
+      An app that allows you to prattle one with complete comfort knowing that
+      you won't be overheard. Discrtion is indeed the better part of valor.
+    </section>
+
+    <section class="background">
+      <!-- Add more content or elements with the interesting background here -->
+    </section>
+
+    <!-- Moon Icon -->
+    <div id="moon" onclick="toggleTheme()">
+      <svg
+        height="20px"
+        width="20px"
+        version="1.1"
+        id="Capa_1"
+        xmlns="http://www.w3.org/2000/svg"
+        xmlns:xlink="http://www.w3.org/1999/xlink"
+        viewBox="0 0 47.539 47.539"
+        xml:space="preserve"
+      >
+        <g>
+          <g>
+            <path
+              style="fill: #faf9f6"
+              d="M24.997,47.511C11.214,47.511,0,36.298,0,22.515C0,12.969,5.314,4.392,13.869,0.132
+			c0.385-0.191,0.848-0.117,1.151,0.186s0.381,0.766,0.192,1.15C13.651,4.64,12.86,8.05,12.86,11.601
+			c0,12.681,10.316,22.997,22.997,22.997c3.59,0,7.033-0.809,10.236-2.403c0.386-0.191,0.848-0.117,1.151,0.186
+			c0.304,0.303,0.381,0.766,0.192,1.15C43.196,42.153,34.597,47.511,24.997,47.511z M12.248,3.372C5.862,7.608,2,14.709,2,22.515
+			c0,12.68,10.316,22.996,22.997,22.996c7.854,0,14.981-3.898,19.207-10.343c-2.668,0.95-5.464,1.43-8.346,1.43
+			c-13.783,0-24.997-11.214-24.997-24.997C10.861,8.761,11.327,6.005,12.248,3.372z"
+            />
+          </g>
+        </g>
+      </svg>
+    </div>
+
+    <!-- Sun Icon -->
+    <div id="sun" onclick="toggleTheme()">
+      <svg
+        version="1.0"
+        id="Layer_1"
+        xmlns="http://www.w3.org/2000/svg"
+        xmlns:xlink="http://www.w3.org/1999/xlink"
+        width="20px"
+        height="20px"
+        viewBox="0 0 64 64"
+        enable-background="new 0 0 64 64"
+        xml:space="preserve"
+      >
+        <g>
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M31.998,14.002c-9.941,0-18,8.059-18,18s8.059,18,18,18
+		s18-8.059,18-18S41.939,14.002,31.998,14.002z M42.998,33.002c-0.553,0-1-0.447-1-1c0-5.523-4.478-10-10-10c-0.553,0-1-0.447-1-1
+		s0.447-1,1-1c6.627,0,12,5.373,12,12C43.998,32.555,43.551,33.002,42.998,33.002z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M63,31H53c-0.553,0-1,0.447-1,1s0.447,1,1,1h10
+		c0.553,0,1-0.447,1-1S63.553,31,63,31z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M11.457,36.47l-3.863,1.035c-0.534,0.144-0.851,0.692-0.707,1.226
+		c0.143,0.533,0.69,0.85,1.225,0.706l3.863-1.035c0.533-0.143,0.85-0.69,0.707-1.225C12.539,36.644,11.99,36.327,11.457,36.47z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M49.32,22c0.277,0.479,0.888,0.643,1.367,0.366l8.66-5
+		c0.479-0.276,0.643-0.888,0.365-1.366c-0.275-0.479-0.887-0.642-1.365-0.365l-8.66,5C49.208,20.912,49.045,21.521,49.32,22z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M17.858,46.143c-0.39-0.391-1.023-0.389-1.414,0l-2.828,2.828
+		c-0.391,0.391-0.39,1.025,0.001,1.415c0.39,0.391,1.022,0.39,1.413-0.001l2.828-2.828C18.249,47.168,18.249,46.534,17.858,46.143z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M42,14.68c0.479,0.276,1.09,0.113,1.367-0.366l5-8.66
+		C48.644,5.175,48.48,4.563,48,4.287c-0.478-0.276-1.088-0.112-1.365,0.366l-4.999,8.661C41.358,13.793,41.522,14.403,42,14.68z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M26.824,51.318c-0.532-0.143-1.08,0.176-1.225,0.707l-1.035,3.863
+		c-0.143,0.535,0.176,1.083,0.709,1.226c0.533,0.144,1.08-0.173,1.223-0.708l1.035-3.863C27.676,52.012,27.359,51.463,26.824,51.318
+		z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M32,12c0.554,0,1.001-0.446,1.002-1V1c0-0.553-0.447-1-1.002-1
+		c-0.551,0-0.998,0.447-0.999,1l0.001,10C31.002,11.553,31.449,12,32,12z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M38.402,52.025c-0.141-0.532-0.689-0.85-1.225-0.707
+		c-0.533,0.143-0.848,0.692-0.707,1.225l1.035,3.863c0.144,0.535,0.693,0.85,1.227,0.707s0.849-0.689,0.705-1.225L38.402,52.025z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M20.637,14.312c0.275,0.479,0.887,0.643,1.363,0.367
+		c0.48-0.277,0.645-0.887,0.368-1.367l-5-8.66C17.092,4.174,16.48,4.01,16,4.287c-0.477,0.275-0.641,0.887-0.365,1.365
+		L20.637,14.312z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M47.558,46.142c-0.388-0.39-1.022-0.39-1.414,0
+		c-0.391,0.39-0.388,1.024,0,1.414l2.828,2.828c0.392,0.392,1.025,0.389,1.415-0.001c0.391-0.39,0.391-1.021-0.001-1.413
+		L47.558,46.142z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M4.654,17.365l8.662,4.999c0.477,0.276,1.088,0.113,1.363-0.364
+		c0.277-0.479,0.115-1.09-0.364-1.367l-8.661-5C5.176,15.356,4.564,15.52,4.287,16C4.013,16.477,4.176,17.089,4.654,17.365z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M52.027,38.4l3.863,1.035c0.535,0.145,1.082-0.176,1.225-0.709
+		c0.144-0.532-0.172-1.079-0.707-1.223l-3.863-1.035c-0.531-0.145-1.081,0.173-1.225,0.707C51.176,37.709,51.496,38.256,52.027,38.4
+		z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M12,32c0.001-0.554-0.445-1-0.998-1.002L1,31
+		c-0.552,0-1,0.445-1,1c0.001,0.551,0.448,1,1.001,1l10.001-0.002C11.553,32.998,12.001,32.552,12,32z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M52.545,27.529l3.863-1.035c0.535-0.143,0.85-0.693,0.706-1.227
+		c-0.142-0.531-0.688-0.848-1.224-0.705l-3.863,1.035c-0.533,0.141-0.85,0.691-0.707,1.225
+		C51.461,27.356,52.012,27.67,52.545,27.529z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M14.68,42c-0.275-0.48-0.886-0.644-1.365-0.368l-8.661,5.002
+		C4.176,46.91,4.01,47.52,4.287,48c0.277,0.477,0.889,0.641,1.367,0.365l8.66-5.002C14.791,43.088,14.957,42.479,14.68,42z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M46.144,17.856c0.389,0.392,1.022,0.388,1.414,0l2.828-2.828
+		c0.392-0.392,0.39-1.024-0.002-1.415c-0.388-0.39-1.021-0.391-1.412,0.001l-2.828,2.828C45.752,16.83,45.754,17.466,46.144,17.856z
+		"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M22,49.32c-0.479-0.277-1.088-0.113-1.365,0.364l-5,8.663
+		c-0.275,0.478-0.115,1.088,0.365,1.365c0.479,0.274,1.09,0.11,1.367-0.367l4.998-8.662C22.641,50.207,22.48,49.597,22,49.32z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M37.178,12.68c0.531,0.145,1.078-0.176,1.225-0.707l1.035-3.863
+		c0.143-0.535-0.176-1.083-0.709-1.225c-0.531-0.144-1.08,0.172-1.223,0.707l-1.035,3.863C36.324,11.986,36.645,12.536,37.178,12.68
+		z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M32,52c-0.553-0.002-0.998,0.446-1,0.998l0.002,10.004
+		C31.002,63.552,31.445,64,32,64c0.553,0,1-0.449,1.001-1l-0.003-10.002C32.998,52.447,32.555,52,32,52z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M25.6,11.973c0.139,0.533,0.691,0.85,1.225,0.707
+		c0.532-0.141,0.846-0.691,0.707-1.225l-1.035-3.863c-0.145-0.535-0.693-0.851-1.227-0.706c-0.531,0.142-0.85,0.688-0.705,1.224
+		L25.6,11.973z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M43.363,49.687c-0.275-0.478-0.883-0.644-1.363-0.365
+		c-0.479,0.274-0.641,0.885-0.367,1.364l5.004,8.661c0.275,0.478,0.883,0.644,1.363,0.366c0.479-0.277,0.642-0.889,0.367-1.367
+		L43.363,49.687z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M16.443,17.856c0.387,0.394,1.023,0.39,1.414,0
+		c0.391-0.388,0.387-1.021,0-1.414l-2.828-2.828c-0.393-0.392-1.025-0.39-1.415,0.002c-0.39,0.388-0.392,1.021,0.001,1.412
+		L16.443,17.856z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M59.348,46.633l-8.663-4.997
+		c-0.478-0.276-1.087-0.116-1.363,0.366c-0.278,0.477-0.112,1.086,0.364,1.364l8.664,4.999c0.477,0.275,1.086,0.115,1.363-0.365
+		C59.988,47.521,59.824,46.91,59.348,46.633z"
+          />
+          <path
+            fill-rule="evenodd"
+            clip-rule="evenodd"
+            fill="#faf9f6"
+            d="M11.974,25.599L8.11,24.563c-0.536-0.144-1.083,0.175-1.225,0.708
+		c-0.144,0.531,0.171,1.08,0.707,1.225l3.863,1.034c0.531,0.146,1.081-0.175,1.225-0.707C12.825,26.293,12.505,25.746,11.974,25.599
+		z"
+          />
+        </g>
+      </svg>
+    </div>
+
+    <script>
+      // Function to toggle between light and dark themes
+      function toggleTheme() {
+        document.body.classList.toggle("dark");
+        document.body.classList.toggle("light");
+      }
+    </script>
+  </body>
+</html>
