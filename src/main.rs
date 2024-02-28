@@ -22,7 +22,7 @@ type UserSessions = Arc<RwLock<HashMap<usize, String>>>;
 async fn main() {
     let addr = env::args()
         .nth(1)
-        .unwrap_or_else(|| "0.0.0.0:3000".to_string());
+        .unwrap_or_else(|| "127.0.0.1:3000".to_string());
     let socket_address: SocketAddr = addr.parse().expect("valid socket Address");
 
     let users = Users::default();
@@ -45,16 +45,13 @@ async fn main() {
             ws.on_upgrade(move |socket| connect(socket, users, sessions, users_to_sessions))
         });
 
+    // "../var/www/static/404.html"
     let res_404 = warp::any().map(|| {
         warp::http::Response::builder()
-            .status(warp::http::StatusCode::NOT_FOUND)
+            .status(warp::http::StatusCode::OK)
             .body(
-                fs::read_to_string(
-                    env::current_dir()
-                        .unwrap()
-                        .join("../var/www/static/404.html"),
-                )
-                .expect("404 404?"),
+                fs::read_to_string(env::current_dir().unwrap().join("./static/main.html"))
+                    .expect("404 404?"),
             )
     });
 
