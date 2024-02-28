@@ -36,12 +36,12 @@
       /* Particle Styles */
       .particle {
         position: absolute;
-        width: 3px;
-        height: 3px;
+        width: 2px;
+        height: 2px;
         background-color: #fff;
         border-radius: 50%;
-        animation: moveParticle linear infinite;
-        animation-duration: 2s;
+        margin: 0px;
+        padding: 0px;
       }
 
       /* Line Styles */
@@ -49,8 +49,6 @@
         position: absolute;
         background-color: #fff;
         opacity: 0; /* Initially invisible */
-        transition: opacity 1s ease; /* Smooth transition for visibility */
-        animation-duration: 2s;
       }
 
       section {
@@ -114,31 +112,6 @@
       body.light #moon {
         display: block;
       }
-
-      /* Keyframes for particle movement */
-      @keyframes moveParticle {
-        0% {
-          transform: translate(0, 0);
-        }
-        100% {
-          transform: translate(100%, 0);
-        }
-      }
-
-      /* Class to change particle direction when near the edge */
-      .change-direction {
-        animation: changeDirection linear infinite;
-      }
-
-      /* Keyframes for changing particle direction */
-      @keyframes changeDirection {
-        0% {
-          transform: translate(0, 0);
-        }
-        100% {
-          transform: translate(-100%, 0);
-        }
-      }
     </style>
   </head>
 
@@ -147,99 +120,95 @@
       <h1>Prate</h1>
 
       <script>
-        // Function to create particles and connect them with lines
-        function createParticles() {
-          const header = document.querySelector("header");
-          const particleCount = 15;
-          const particles = [];
-          const lines = [];
+        function createParticle() {}
+        class Particle {
+          constructor(top, right, bottom, left, height, width) {
+            this.top = top;
+            this.right = right;
+            this.bottom = bottom;
+            this.left = left;
+            this.height = height;
+            this.width = width;
 
-          // Create particles
-          for (let i = 0; i < particleCount; i++) {
-            const particle = document.createElement("div");
-            particle.className = "particle";
-            particles.push(particle);
-            header.appendChild(particle);
-            moveParticle(particle);
+            this.x = Math.random() * width;
+            this.y = Math.random() * height;
+            this.speed = Math.random();
+            this.direction = Math.random() * 360;
+            this.element = document.createElement("div");
+            this.element.classList.add("particle");
+            this.element.style.left = this.x + "px";
+            this.element.style.top = this.y + "px";
+            document.body.appendChild(this.element);
           }
 
-          // Create lines
-          for (let i = 0; i < particleCount; i++) {
-            const line = document.createElement("div");
-            line.className = "line";
-            lines.push(line);
-            header.appendChild(line);
+          /*
+
+            This will request an animation frame and then move the particle in the direction it is facing.
+            Pick an initial direction at random. if the particle reaches the edge of the screen, change direction.
+                      
+          */
+          move_particle() {
+            if (
+              this.x >= this.right - 10 ||
+              this.x <= 10 ||
+              this.y >= this.bottom - 10 ||
+              this.y <= 10
+            ) {
+              this.direction = (180 - this.direction) % 360;
+            }
+
+            this.x += this.speed * Math.cos(this.direction);
+            this.y += this.speed * Math.sin(this.direction);
+
+            this.element.style.left = this.x + "px";
+            this.element.style.top = this.y + "px";
+
+            requestAnimationFrame(() => this.move_particle());
           }
-
-          // Move particles in a constant direction
-          function moveParticle(particle) {
-            particle.style.left = "0";
-            particle.style.top = `${Math.random() * header.clientHeight}px`;
-            particle.classList.add("change-direction");
-          }
-
-          // Connect particles with lines when close
-          function connectParticles() {
-            particles.forEach((particle1, index1) => {
-              particles.forEach((particle2, index2) => {
-                if (index1 !== index2) {
-                  const distance = getDistance(particle1, particle2);
-                  const line = lines[index1 * particleCount + index2];
-
-                  if (distance < 150) {
-                    updateLine(line, particle1, particle2, distance);
-                  } else {
-                    hideLine(line);
-                  }
-                }
-              });
-            });
-            requestAnimationFrame(connectParticles);
-          }
-
-          // Calculate distance between two particles
-          function getDistance(particle1, particle2) {
-            const dx =
-              parseInt(particle1.style.left) - parseInt(particle2.style.left);
-            const dy =
-              parseInt(particle1.style.top) - parseInt(particle2.style.top);
-            return Math.sqrt(dx * dx + dy * dy);
-          }
-
-          // Update line between two particles
-          function updateLine(line, particle1, particle2, distance) {
-            const angle = getAngle(particle1, particle2);
-            const midX =
-              (parseInt(particle1.style.left) +
-                parseInt(particle2.style.left)) /
-              2;
-            const midY =
-              (parseInt(particle1.style.top) + parseInt(particle2.style.top)) /
-              2;
-
-            line.style.transform = `translate(${midX}px, ${midY}px) rotate(${angle}rad)`;
-            line.style.width = `${distance}px`;
-            line.style.opacity = 1;
-          }
-
-          // Hide line
-          function hideLine(line) {
-            line.style.opacity = 0;
-          }
-
-          // Calculate angle between two particles
-          function getAngle(particle1, particle2) {
-            const dx =
-              parseInt(particle2.style.left) - parseInt(particle1.style.left);
-            const dy =
-              parseInt(particle2.style.top) - parseInt(particle1.style.top);
-            return Math.atan2(dy, dx);
-          }
-
-          connectParticles();
         }
 
-        // Execute the particle effect
+        // Function to create particles and connect them with lines
+        function createParticles() {
+          /* create a variable number of particles. These particles
+          Will then be directed to move in an initial random direction
+          and then change direction when they reach the edge of the screen.
+
+          When the particles are created, they will be connected with lines to create a web effect.
+          */
+
+          const numberOfParticles = 15;
+          let particles = new Array(numberOfParticles).fill(1);
+
+          // Determing the edges of the header div
+          /*
+            top: number,
+            right: number,
+            bottom: number,
+            left: number,
+
+          */
+
+          const header = document.querySelector("header");
+          const { top, right, bottom, left, height, width } =
+            header.getBoundingClientRect();
+
+          // Map over the particles and give them a starting position;
+          particles = particles.map(() => {
+            const new_part = new Particle(
+              top,
+              right,
+              bottom,
+              left,
+              height,
+              width,
+            );
+            new_part.move_particle();
+            return new_part;
+          });
+
+          // Create lines between the particles
+        }
+
         createParticles();
       </script>
     </header>
