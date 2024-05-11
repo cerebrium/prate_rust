@@ -1,4 +1,4 @@
-pub mod connection;
+pub mod handlers;
 
 use std::env;
 use std::fs;
@@ -8,7 +8,7 @@ use tokio::sync::{mpsc, RwLock};
 use warp::ws::Message;
 use warp::Filter;
 
-use crate::connection::connect::connect;
+use crate::handlers::messaging::connect::connect;
 
 // Usize -> User ID
 // String -> Session ID
