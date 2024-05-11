@@ -1,0 +1,21 @@
+[package]
+name = "tcp_server"
+version = "0.1.0"
+edition = "2021"
+authors = ["Nicholas Shankland <nicholas.m.shankland@gmail.com>"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+tokio = { version = "1.33.0", features = ["full"] }
+regex = "1.10.2"
+warp = "0.3.6"
+tokio-stream = "0.1.6"
+futures = "0.3.15"
+async-recursion = "1.0.5"
+serde = { version = "1.0.152", features = ["derive"] }
+serde_json = "1.0"
+diesel = { version = "2.1.6", features = ["postgres", "r2d2", "chrono"] }
+dotenv = "0.15.0"
+chrono = "0.4.38"
